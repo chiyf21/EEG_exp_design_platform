@@ -372,7 +372,8 @@ class VisualRenderer:
 class TextRenderer(VisualRenderer):
     def show(self, canvas: tk.Canvas, phase: Phase, width: int, height: int, root: tk.Misc) -> None:
         _, value = display_visual(phase)
-        canvas.create_text(width // 2, height // 2, text=value or phase.instruction, fill="white", font=(UI_FONT_FAMILY, 42), width=max(300, width - 160))
+        font_size = max(48, min(84, width // 18))
+        canvas.create_text(width // 2, height // 2, text=value or phase.instruction, fill="white", font=(UI_FONT_FAMILY, font_size, "bold"), width=max(300, width - 160))
 
 
 class BlankRenderer(VisualRenderer):
@@ -453,8 +454,12 @@ class PresentationWindow:
 
         self.canvas = tk.Canvas(self.window, bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.info = tk.Label(self.window, bg="#111111", fg="#cccccc", font=(UI_FONT_FAMILY, 12), padx=10, pady=5)
-        self.info.place(x=12, y=12)
+        self.hud = tk.Frame(self.window, bg="#111111", padx=12, pady=8)
+        self.hud.place(x=14, y=14)
+        self.info = tk.Label(self.hud, bg="#111111", fg="#D5DCEF", font=(UI_FONT_FAMILY, 12), justify="left", anchor="w")
+        self.info.pack(anchor="w")
+        self.next_info = tk.Label(self.hud, bg="#111111", fg="#8FB3FF", font=(UI_FONT_FAMILY, 11), justify="left", anchor="w")
+        self.next_info.pack(anchor="w", pady=(4, 0))
         self.window.update_idletasks()
 
         self.renderers: dict[str, VisualRenderer] = {
@@ -487,6 +492,21 @@ class PresentationWindow:
     def _resolve_media_path(self, value: str) -> str:
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else self.base_dir / path)
+
+    def _update_next_action(self) -> None:
+        unit = self.plan[self.current_trial]
+        next_phase_index = self.current_phase + 1
+        if next_phase_index < len(unit.phases):
+            next_unit = unit
+            next_phase = unit.phases[next_phase_index]
+        elif self.current_trial + 1 < len(self.plan):
+            next_unit = self.plan[self.current_trial + 1]
+            next_phase = next_unit.phases[0]
+        else:
+            self.next_info.configure(text="下一步：实验结束")
+            return
+        next_text = next_phase.instruction.strip() or next_phase.name
+        self.next_info.configure(text=f"下一步：{next_unit.name} · {next_text}")
 
     def _emit(self, event: str, scheduled_elapsed_s: float, phase: Phase | None = None) -> None:
         actual_elapsed = time.perf_counter() - self.session_start
@@ -554,6 +574,7 @@ class PresentationWindow:
                 font=(UI_FONT_FAMILY, 26),
             )
         self.canvas.update_idletasks()
+        self._update_next_action()
         self._emit("phase/start", self.phase_scheduled_start, phase)
 
     def _tick(self) -> None:
