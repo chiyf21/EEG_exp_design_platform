@@ -7,6 +7,8 @@
   "lsl_stream_name": "MIExperimentMarkers",
   "lsl_source_id": "mi-experiment-designer",
   "output_dir": "sessions",
+  "speech_enabled": false,
+  "speech_rate": 170,
   "units": [
     {
       "name": "左手",

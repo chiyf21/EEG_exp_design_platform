@@ -7,7 +7,9 @@ from datetime import datetime
 import json
 import math
 from pathlib import Path
+from queue import Empty, Full, Queue
 import sys
+import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -63,6 +65,12 @@ except ImportError:
     cv2 = None
 
 
+try:
+    import pyttsx3
+except ImportError:
+    pyttsx3 = None
+
+
 SELECTION_LABELS = {
     "weighted": "按比例（权重配额）",
     "random": "随机（按权重抽取）",
@@ -78,6 +86,12 @@ def format_seconds(value: float) -> str:
 def display_visual(phase: Phase) -> tuple[str, str]:
     visual = phase.visual or {}
     return str(visual.get("type", "text")), str(visual.get("value", phase.instruction))
+
+
+def speech_text_for_phase(phase: Phase) -> str:
+    """Prefer the semantic instruction over a visual symbol such as '+'."""
+    _, visual_value = display_visual(phase)
+    return phase.instruction.strip() or visual_value.strip() or phase.name
 
 
 class PhaseDialog(tk.Toplevel):
@@ -327,6 +341,118 @@ class LslMarker:
         return timestamp
 
 
+class SpeechWorker:
+    """Run offline TTS outside Tk's timing loop and keep only the newest phrase."""
+
+    def __init__(self, rate: int = 170):
+        self.available = pyttsx3 is not None
+        self.error: str | None = None
+        self.ready = threading.Event()
+        self._stop = threading.Event()
+        self._queue: Queue[tuple[str, threading.Event] | None] = Queue(maxsize=1)
+        self._lock = threading.Lock()
+        self._active_cancel: threading.Event | None = None
+        self._engine = None
+        self._thread: threading.Thread | None = None
+        self._rate = max(80, min(300, int(rate)))
+        if self.available:
+            self._thread = threading.Thread(target=self._run, name="mi-tts", daemon=True)
+            self._thread.start()
+        else:
+            self.ready.set()
+
+    def _run(self) -> None:
+        try:
+            engine = pyttsx3.init()
+            engine.setProperty("rate", self._rate)
+            engine.setProperty("volume", 1.0)
+            self._select_chinese_voice(engine)
+            self._engine = engine
+            engine.connect("started-word", self._stop_if_cancelled)
+        except Exception as exc:
+            self.error = str(exc)
+            self.ready.set()
+            return
+        self.ready.set()
+        while not self._stop.is_set():
+            try:
+                item = self._queue.get(timeout=0.2)
+            except Empty:
+                continue
+            if item is None:
+                break
+            text, cancel = item
+            with self._lock:
+                self._active_cancel = cancel
+            try:
+                if not cancel.is_set():
+                    engine.say(text)
+                    engine.runAndWait()
+            except Exception as exc:
+                self.error = str(exc)
+            finally:
+                with self._lock:
+                    if self._active_cancel is cancel:
+                        self._active_cancel = None
+        try:
+            engine.stop()
+        except Exception:
+            pass
+
+    def _select_chinese_voice(self, engine: Any) -> None:
+        for voice in engine.getProperty("voices") or []:
+            details = " ".join(
+                [str(getattr(voice, "id", "")), str(getattr(voice, "name", ""))]
+                + [str(item) for item in getattr(voice, "languages", [])]
+            ).lower()
+            if any(token in details for token in ("zh", "chinese", "mandarin", "huihui", "yaoyao", "kangkang")):
+                engine.setProperty("voice", voice.id)
+                return
+
+    def _stop_if_cancelled(self, _name: str = "", _location: int = 0, _length: int = 0) -> None:
+        with self._lock:
+            cancel = self._active_cancel
+            engine = self._engine
+        if cancel and cancel.is_set() and engine:
+            engine.stop()
+
+    def _clear_pending(self) -> None:
+        while True:
+            try:
+                self._queue.get_nowait()
+            except Empty:
+                return
+
+    def stop_current(self) -> None:
+        with self._lock:
+            if self._active_cancel:
+                self._active_cancel.set()
+        self._clear_pending()
+
+    def speak(self, text: str) -> bool:
+        if not self.available or not text.strip() or self._stop.is_set():
+            return False
+        self.stop_current()
+        try:
+            self._queue.put_nowait((text.strip(), threading.Event()))
+        except Full:
+            self._clear_pending()
+            self._queue.put_nowait((text.strip(), threading.Event()))
+        return True
+
+    def close(self) -> None:
+        if not self.available or not self._thread:
+            return
+        self.stop_current()
+        self._stop.set()
+        self._clear_pending()
+        try:
+            self._queue.put_nowait(None)
+        except Full:
+            pass
+        self._thread.join(timeout=1.0)
+
+
 class SessionLog:
     def __init__(self, output_dir: Path, config: ExperimentConfig):
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -468,6 +594,9 @@ class PresentationWindow:
             "image": ImageRenderer(),
             "video": VideoRenderer(),
         }
+        self.speech = SpeechWorker(config.speech_rate) if config.speech_enabled else None
+        if self.speech:
+            self.speech.ready.wait(timeout=2.0)
         self.marker = LslMarker(config.lsl_stream_name, config.lsl_source_id, self._set_status)
         output_dir = Path(config.output_dir)
         if not output_dir.is_absolute():
@@ -555,6 +684,8 @@ class PresentationWindow:
         )
         self.phase_deadline = self.session_start + self.phase_scheduled_start + phase.duration_s
         self.canvas.delete("all")
+        if self.speech:
+            self.speech.stop_current()
         for renderer in self.renderers.values():
             renderer.stop()
         visual_type, visual_value = display_visual(phase)
@@ -576,6 +707,8 @@ class PresentationWindow:
         self.canvas.update_idletasks()
         self._update_next_action()
         self._emit("phase/start", self.phase_scheduled_start, phase)
+        if self.speech:
+            self.speech.speak(speech_text_for_phase(phase))
 
     def _tick(self) -> None:
         if not self.running:
@@ -622,6 +755,8 @@ class PresentationWindow:
         self.on_done(path)
 
     def _close(self) -> None:
+        if self.speech:
+            self.speech.close()
         for renderer in self.renderers.values():
             renderer.stop()
         self.log.close()
@@ -670,6 +805,7 @@ class ExperimentApp:
         style.configure("CardMuted.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=(UI_FONT_FAMILY, 9))
         style.configure("Card.TLabelframe", background=self.colors["card"], foreground=self.colors["text"], bordercolor=self.colors["border"], relief="solid", borderwidth=1)
         style.configure("Card.TLabelframe.Label", background=self.colors["card"], foreground=self.colors["text"], font=(UI_FONT_FAMILY, 10, "bold"))
+        style.configure("Card.TCheckbutton", background=self.colors["card"], foreground=self.colors["text"], font=(UI_FONT_FAMILY, 10))
         style.configure("TEntry", padding=(8, 6), fieldbackground="#FFFFFF", foreground=self.colors["text"])
         style.configure("TCombobox", padding=(7, 5), fieldbackground="#FFFFFF", foreground=self.colors["text"])
         style.map("TCombobox", fieldbackground=[("readonly", "#FFFFFF")])
@@ -722,9 +858,11 @@ class ExperimentApp:
         general = ttk.Frame(notebook, style="App.TFrame", padding=16)
         library = ttk.Frame(notebook, style="App.TFrame", padding=16)
         lsl = ttk.Frame(notebook, style="App.TFrame", padding=16)
+        speech = ttk.Frame(notebook, style="App.TFrame", padding=16)
         notebook.add(general, text="实验设置")
         notebook.add(library, text="单元实验库")
         notebook.add(lsl, text="LSL / 输出")
+        notebook.add(speech, text="语音播报")
 
         settings_card = ttk.LabelFrame(general, text="基础设置", style="Card.TLabelframe", padding=18)
         settings_card.pack(anchor="nw", fill="x")
@@ -785,6 +923,18 @@ class ExperimentApp:
             ttk.Entry(lsl_form, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
         ttk.Label(lsl_card, text="发送内容：单通道 string marker，内容为 JSON；详见 README。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
 
+        self.speech_enabled_var = tk.BooleanVar(value=False)
+        self.speech_rate_var = tk.StringVar(value="170")
+        speech_card = ttk.LabelFrame(speech, text="自动语音播报", style="Card.TLabelframe", padding=18)
+        speech_card.pack(anchor="nw", fill="x")
+        ttk.Checkbutton(speech_card, text="实验开始后，进入每个阶段时播报该阶段指令", variable=self.speech_enabled_var, style="Card.TCheckbutton").pack(anchor="w")
+        speech_form = ttk.Frame(speech_card, style="Card.TFrame")
+        speech_form.pack(anchor="w", pady=(14, 0))
+        ttk.Label(speech_form, text="语速（80–300）", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Entry(speech_form, textvariable=self.speech_rate_var, width=10).grid(row=0, column=1, sticky="w", padx=(12, 0))
+        ttk.Label(speech_card, text="语音使用本机系统 TTS；程序会优先选择中文语音。语音在后台播放，不阻塞实验计时。", style="CardMuted.TLabel").pack(anchor="w", pady=(14, 0))
+        ttk.Label(speech_card, text="安装依赖：python -m pip install pyttsx3。Linux 还可能需要 espeak-ng 和 libespeak1。", style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
+
         self.status_var = tk.StringVar(value="就绪")
         status_bar = tk.Frame(self.root, bg="#EAF0FF", height=34)
         status_bar.grid(row=3, column=0, sticky="ew")
@@ -801,6 +951,8 @@ class ExperimentApp:
         self.lsl_name_var.set(self.config.lsl_stream_name)
         self.lsl_source_var.set(self.config.lsl_source_id)
         self.output_dir_var.set(self.config.output_dir)
+        self.speech_enabled_var.set(self.config.speech_enabled)
+        self.speech_rate_var.set(str(self.config.speech_rate))
         self._update_summary()
 
     def _refresh_units(self) -> None:
@@ -833,6 +985,8 @@ class ExperimentApp:
         self.config.lsl_stream_name = self.lsl_name_var.get().strip()
         self.config.lsl_source_id = self.lsl_source_var.get().strip()
         self.config.output_dir = self.output_dir_var.get().strip() or "sessions"
+        self.config.speech_enabled = self.speech_enabled_var.get()
+        self.config.speech_rate = int(self.speech_rate_var.get())
 
     def _new_config(self) -> None:
         self.config = default_config()

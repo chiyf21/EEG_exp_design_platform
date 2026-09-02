@@ -104,6 +104,8 @@ class ExperimentConfig:
     lsl_stream_name: str = "MIExperimentMarkers"
     lsl_source_id: str = "mi-experiment-designer"
     output_dir: str = "sessions"
+    speech_enabled: bool = False
+    speech_rate: int = 170
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExperimentConfig":
@@ -117,6 +119,8 @@ class ExperimentConfig:
             lsl_stream_name=str(data.get("lsl_stream_name", "MIExperimentMarkers")),
             lsl_source_id=str(data.get("lsl_source_id", "mi-experiment-designer")),
             output_dir=str(data.get("output_dir", "sessions")),
+            speech_enabled=bool(data.get("speech_enabled", False)),
+            speech_rate=int(data.get("speech_rate", 170)),
         )
 
     @classmethod
@@ -133,6 +137,8 @@ class ExperimentConfig:
             "lsl_stream_name": self.lsl_stream_name,
             "lsl_source_id": self.lsl_source_id,
             "output_dir": self.output_dir,
+            "speech_enabled": self.speech_enabled,
+            "speech_rate": self.speech_rate,
             "units": [unit.to_dict() for unit in self.units],
         }
 
@@ -147,6 +153,8 @@ class ExperimentConfig:
             raise ValueError("界面主标题不能为空")
         if not self.header_subtitle.strip():
             raise ValueError("界面副标题不能为空")
+        if not 80 <= self.speech_rate <= 300:
+            raise ValueError("语速必须在 80 到 300 之间")
         if not math.isfinite(self.total_duration_s) or self.total_duration_s <= 0:
             raise ValueError("总实验时长必须大于 0")
         if self.selection_mode not in {"weighted", "random"}:
@@ -238,6 +246,8 @@ def default_config() -> ExperimentConfig:
 def self_check() -> None:
     config = default_config()
     config.validate()
+    assert config.speech_enabled is False
+    assert config.speech_rate == 170
     assert config.unit_duration_s == 30
     assert config.planned_trial_count == 30
     plan = config.build_plan(random.Random(7))
@@ -249,7 +259,9 @@ def self_check() -> None:
     assert len(random_plan) == 30
 
     encoded = json.dumps(config.to_dict(), ensure_ascii=False)
-    assert ExperimentConfig.from_dict(json.loads(encoded)).unit_duration_s == 30
+    restored = ExperimentConfig.from_dict(json.loads(encoded))
+    assert restored.unit_duration_s == 30
+    assert restored.speech_enabled is False
 
 
 if __name__ == "__main__":

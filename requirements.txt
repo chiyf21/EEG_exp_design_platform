@@ -1,3 +1,4 @@
 pylsl>=1.17
 Pillow>=10.0
 opencv-python>=4.8
+pyttsx3>=2.90
