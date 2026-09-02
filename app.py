@@ -573,7 +573,9 @@ class ExperimentApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("运动想象实验设计器")
-        self.root.geometry("980x680")
+        self.root.geometry("1040x720")
+        self.root.minsize(900, 620)
+        self._configure_theme()
         self.config = default_config()
         self.config_path: Path | None = None
         self.base_dir = Path.cwd()
@@ -581,20 +583,81 @@ class ExperimentApp:
         self._load_form()
         self._refresh_units()
 
+    def _configure_theme(self) -> None:
+        self.colors = {
+            "bg": "#F4F6FA",
+            "card": "#FFFFFF",
+            "navy": "#172238",
+            "blue": "#356AE6",
+            "blue_dark": "#2855C4",
+            "text": "#1D2939",
+            "muted": "#667085",
+            "border": "#D9E1EE",
+            "soft_blue": "#EAF0FF",
+            "green": "#12B76A",
+        }
+        self.root.configure(bg=self.colors["bg"])
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("TFrame", background=self.colors["bg"])
+        style.configure("App.TFrame", background=self.colors["bg"])
+        style.configure("Card.TFrame", background=self.colors["card"])
+        style.configure("TLabel", background=self.colors["bg"], foreground=self.colors["text"], font=("Segoe UI", 10))
+        style.configure("Muted.TLabel", background=self.colors["bg"], foreground=self.colors["muted"], font=("Segoe UI", 9))
+        style.configure("Card.TLabel", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10))
+        style.configure("CardMuted.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=("Segoe UI", 9))
+        style.configure("Card.TLabelframe", background=self.colors["card"], foreground=self.colors["text"], bordercolor=self.colors["border"], relief="solid", borderwidth=1)
+        style.configure("Card.TLabelframe.Label", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10, "bold"))
+        style.configure("TEntry", padding=(8, 6), fieldbackground="#FFFFFF", foreground=self.colors["text"])
+        style.configure("TCombobox", padding=(7, 5), fieldbackground="#FFFFFF", foreground=self.colors["text"])
+        style.map("TCombobox", fieldbackground=[("readonly", "#FFFFFF")])
+        style.configure("TButton", padding=(12, 7), font=("Segoe UI", 9), foreground=self.colors["text"])
+        style.configure("Secondary.TButton", padding=(12, 7), background="#E8EDF6", foreground=self.colors["text"], font=("Segoe UI", 9))
+        style.map("Secondary.TButton", background=[("active", "#DCE5F4"), ("pressed", "#D2DDF0")])
+        style.configure("Accent.TButton", padding=(18, 9), background=self.colors["blue"], foreground="#FFFFFF", font=("Segoe UI", 10, "bold"))
+        style.map("Accent.TButton", background=[("active", self.colors["blue_dark"]), ("pressed", self.colors["blue_dark"])])
+        style.configure("Treeview", background="#FFFFFF", fieldbackground="#FFFFFF", foreground=self.colors["text"], rowheight=36, borderwidth=0, font=("Segoe UI", 10))
+        style.configure("Treeview.Heading", background="#EEF2F8", foreground=self.colors["muted"], relief="flat", padding=(8, 8), font=("Segoe UI", 9, "bold"))
+        style.map("Treeview", background=[("selected", self.colors["blue"])], foreground=[("selected", "#FFFFFF")])
+        style.configure("TNotebook", background=self.colors["bg"], borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook.Tab", background="#E7ECF5", foreground=self.colors["muted"], padding=(18, 9), font=("Segoe UI", 10))
+        style.map("TNotebook.Tab", background=[("selected", self.colors["card"])], foreground=[("selected", self.colors["blue"])])
+        style.configure("Status.TLabel", background="#EAF0FF", foreground="#2F559F", padding=(10, 7), font=("Segoe UI", 9))
+
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
-        toolbar = ttk.Frame(self.root, padding=(12, 10, 12, 0))
-        toolbar.grid(row=0, column=0, sticky="ew")
+        self.root.rowconfigure(2, weight=1)
+
+        header = tk.Frame(self.root, bg=self.colors["navy"], height=92)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
+        header.columnconfigure(0, weight=1)
+        title_box = tk.Frame(header, bg=self.colors["navy"])
+        title_box.grid(row=0, column=0, sticky="nsw", padx=28, pady=16)
+        tk.Label(title_box, text="MI", bg=self.colors["blue"], fg="white", font=("Segoe UI", 12, "bold"), width=4, height=2).pack(side="left", padx=(0, 14))
+        title_text = tk.Frame(title_box, bg=self.colors["navy"])
+        title_text.pack(side="left", anchor="center")
+        tk.Label(title_text, text="运动想象实验设计器", bg=self.colors["navy"], fg="white", font=("Segoe UI", 20, "bold")).pack(anchor="w")
+        tk.Label(title_text, text="配置刺激序列 · 同步 EEG · 记录实验日志", bg=self.colors["navy"], fg="#AAB7CE", font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 0))
+        ttk.Button(header, text="▶  开始实验", style="Accent.TButton", command=self._start_experiment).grid(row=0, column=1, padx=28, pady=24)
+
+        toolbar = tk.Frame(self.root, bg=self.colors["bg"])
+        toolbar.grid(row=1, column=0, sticky="ew", padx=24, pady=(14, 0))
+        ttk.Label(toolbar, text="实验配置", font=("Segoe UI", 11, "bold")).pack(side="left")
+        ttk.Label(toolbar, text="  先配置单元实验，再开始呈现", style="Muted.TLabel").pack(side="left", padx=(6, 0))
+        actions = ttk.Frame(toolbar)
+        actions.pack(side="right")
         for text, command in (("新建", self._new_config), ("打开配置", self._open_config), ("保存", self._save_config), ("另存为", self._save_as)):
-            ttk.Button(toolbar, text=text, command=command).pack(side="left", padx=(0, 6))
-        ttk.Button(toolbar, text="开始实验", command=self._start_experiment).pack(side="right")
+            ttk.Button(actions, text=text, style="Secondary.TButton", command=command).pack(side="left", padx=(6, 0))
 
         notebook = ttk.Notebook(self.root)
-        notebook.grid(row=1, column=0, sticky="nsew", padx=12, pady=12)
-        general = ttk.Frame(notebook, padding=16)
-        library = ttk.Frame(notebook, padding=16)
-        lsl = ttk.Frame(notebook, padding=16)
+        notebook.grid(row=2, column=0, sticky="nsew", padx=24, pady=(12, 16))
+        general = ttk.Frame(notebook, style="App.TFrame", padding=16)
+        library = ttk.Frame(notebook, style="App.TFrame", padding=16)
+        lsl = ttk.Frame(notebook, style="App.TFrame", padding=16)
         notebook.add(general, text="实验设置")
         notebook.add(library, text="单元实验库")
         notebook.add(lsl, text="LSL / 输出")
@@ -602,47 +665,66 @@ class ExperimentApp:
         self.name_var = tk.StringVar()
         self.total_minutes_var = tk.StringVar()
         self.selection_var = tk.StringVar()
-        form = ttk.Frame(general)
-        form.pack(anchor="nw", fill="x")
-        ttk.Label(form, text="实验名称").grid(row=0, column=0, sticky="w", pady=6)
+        settings_card = ttk.LabelFrame(general, text="基础设置", style="Card.TLabelframe", padding=18)
+        settings_card.pack(anchor="nw", fill="x")
+        settings_card.columnconfigure(1, weight=1)
+        form = ttk.Frame(settings_card, style="Card.TFrame")
+        form.grid(row=0, column=0, sticky="ew")
+        ttk.Label(form, text="实验名称", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=7)
         ttk.Entry(form, textvariable=self.name_var, width=44).grid(row=0, column=1, sticky="w", pady=6)
-        ttk.Label(form, text="总实验时间（分钟）").grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Label(form, text="总实验时间（分钟）", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=7)
         ttk.Entry(form, textvariable=self.total_minutes_var, width=12).grid(row=1, column=1, sticky="w", pady=6)
-        ttk.Label(form, text="单元抽取方式").grid(row=2, column=0, sticky="w", pady=6)
+        ttk.Label(form, text="单元抽取方式", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=7)
         ttk.Combobox(form, textvariable=self.selection_var, values=tuple(SELECTION_LABELS.values()), state="readonly", width=26).grid(row=2, column=1, sticky="w", pady=6)
+        ttk.Label(form, text="按比例模式会先分配配额并打乱顺序；随机模式每次独立抽取。", style="CardMuted.TLabel").grid(row=3, column=1, sticky="w", pady=(2, 0))
+
         self.summary_var = tk.StringVar()
-        ttk.Label(general, textvariable=self.summary_var, foreground="#555555").pack(anchor="nw", pady=(20, 0))
-        ttk.Label(general, text="说明：当前版本要求各单元总时长相同；总时长不足一个整单元的余数会被忽略。", foreground="#777777").pack(anchor="nw", pady=(6, 0))
+        summary_card = ttk.LabelFrame(general, text="计划摘要", style="Card.TLabelframe", padding=18)
+        summary_card.pack(anchor="nw", fill="x", pady=(14, 0))
+        ttk.Label(summary_card, textvariable=self.summary_var, style="Card.TLabel", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(summary_card, text="当前版本要求各单元总时长相同；总时长不足一个整单元的余数会被忽略。", style="CardMuted.TLabel").pack(anchor="w", pady=(7, 0))
 
         library.rowconfigure(0, weight=1)
         library.columnconfigure(0, weight=1)
+        library_card = ttk.LabelFrame(library, text="可用单元实验", style="Card.TLabelframe", padding=12)
+        library_card.grid(row=0, column=0, columnspan=2, sticky="nsew")
+        library_card.rowconfigure(0, weight=1)
+        library_card.columnconfigure(0, weight=1)
         columns = ("name", "duration", "weight", "phases")
-        self.unit_tree = ttk.Treeview(library, columns=columns, show="headings", selectmode="browse")
+        self.unit_tree = ttk.Treeview(library_card, columns=columns, show="headings", selectmode="browse")
+        self.unit_tree.tag_configure("alternate", background="#F8FAFD")
         for column, heading, width in (("name", "名称", 230), ("duration", "单元时长", 130), ("weight", "权重", 100), ("phases", "阶段数", 100)):
             self.unit_tree.heading(column, text=heading)
             self.unit_tree.column(column, width=width, anchor="w")
         self.unit_tree.grid(row=0, column=0, sticky="nsew")
-        library_scroll = ttk.Scrollbar(library, orient="vertical", command=self.unit_tree.yview)
-        library_scroll.grid(row=0, column=1, sticky="ns")
+        library_scroll = ttk.Scrollbar(library_card, orient="vertical", command=self.unit_tree.yview)
+        library_scroll.grid(row=0, column=1, sticky="ns", padx=(8, 0))
         self.unit_tree.configure(yscrollcommand=library_scroll.set)
         self.unit_tree.bind("<Double-1>", lambda _event: self._edit_unit())
         unit_buttons = ttk.Frame(library)
-        unit_buttons.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        unit_buttons.grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 0))
         for text, command in (("添加单元", self._add_unit), ("编辑单元", self._edit_unit), ("删除单元", self._delete_unit)):
-            ttk.Button(unit_buttons, text=text, command=command).pack(side="left", padx=(0, 6))
+            ttk.Button(unit_buttons, text=text, style="Secondary.TButton", command=command).pack(side="left", padx=(0, 6))
+        ttk.Label(unit_buttons, text="双击表格行也可以编辑", style="Muted.TLabel").pack(side="left", padx=(8, 0))
 
         self.lsl_name_var = tk.StringVar()
         self.lsl_source_var = tk.StringVar()
         self.output_dir_var = tk.StringVar()
-        lsl_form = ttk.Frame(lsl)
+        lsl_card = ttk.LabelFrame(lsl, text="同步与日志", style="Card.TLabelframe", padding=18)
+        lsl_card.pack(anchor="nw", fill="x")
+        lsl_form = ttk.Frame(lsl_card, style="Card.TFrame")
         lsl_form.pack(anchor="nw", fill="x")
         for row, (label, variable, width) in enumerate((("LSL stream name", self.lsl_name_var, 44), ("LSL source id", self.lsl_source_var, 44), ("日志目录", self.output_dir_var, 44))):
-            ttk.Label(lsl_form, text=label).grid(row=row, column=0, sticky="w", pady=6)
+            ttk.Label(lsl_form, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=7)
             ttk.Entry(lsl_form, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
-        ttk.Label(lsl, text="发送内容：单通道 string marker，内容为 JSON；详见 README。", foreground="#555555").pack(anchor="nw", pady=(18, 0))
+        ttk.Label(lsl_card, text="发送内容：单通道 string marker，内容为 JSON；详见 README。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
 
         self.status_var = tk.StringVar(value="就绪")
-        ttk.Label(self.root, textvariable=self.status_var, relief="sunken", anchor="w", padding=(8, 4)).grid(row=2, column=0, sticky="ew")
+        status_bar = tk.Frame(self.root, bg="#EAF0FF", height=34)
+        status_bar.grid(row=3, column=0, sticky="ew")
+        status_bar.grid_propagate(False)
+        tk.Label(status_bar, text="●", bg="#EAF0FF", fg=self.colors["green"], font=("Segoe UI", 10)).pack(side="left", padx=(16, 5))
+        ttk.Label(status_bar, textvariable=self.status_var, style="Status.TLabel", anchor="w").pack(side="left", fill="x", expand=True)
 
     def _load_form(self) -> None:
         self.name_var.set(self.config.name)
@@ -657,7 +739,8 @@ class ExperimentApp:
         for item in self.unit_tree.get_children():
             self.unit_tree.delete(item)
         for index, unit in enumerate(self.config.units):
-            self.unit_tree.insert("", "end", iid=str(index), values=(unit.name, format_seconds(unit.duration_s), unit.weight, len(unit.phases)))
+            tags = ("alternate",) if index % 2 else ()
+            self.unit_tree.insert("", "end", iid=str(index), values=(unit.name, format_seconds(unit.duration_s), unit.weight, len(unit.phases)), tags=tags)
         self._update_summary()
 
     def _update_summary(self) -> None:
