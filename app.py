@@ -84,7 +84,9 @@ class PhaseDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, phase: Phase | None = None):
         super().__init__(parent)
         self.title("编辑阶段")
-        self.resizable(False, False)
+        self.geometry("700x380")
+        self.resizable(True, False)
+        self.minsize(620, 340)
         self.result: Phase | None = None
         phase = phase or Phase("新阶段", 1, "", {"type": "text", "value": ""}, "")
 
@@ -130,6 +132,8 @@ class PhaseDialog(tk.Toplevel):
         ttk.Button(buttons, text="取消", command=self.destroy).pack(side="right", padx=(6, 0))
         ttk.Button(buttons, text="确定", command=self._accept).pack(side="right")
         self._update_visual_hint()
+        self.update_idletasks()
+        self.minsize(max(620, self.winfo_reqwidth()), max(340, self.winfo_reqheight()))
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
@@ -182,7 +186,9 @@ class UnitDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, unit: Unit | None = None):
         super().__init__(parent)
         self.title("编辑单元实验")
-        self.geometry("760x420")
+        self.geometry("800x520")
+        self.resizable(True, True)
+        self.minsize(720, 450)
         self.result: Unit | None = None
         self.phases: list[Phase] = list(unit.phases) if unit else []
         unit = unit or Unit("新单元", 1.0, [])
@@ -229,6 +235,8 @@ class UnitDialog(tk.Toplevel):
         ttk.Button(controls, text="确定", command=self._accept).pack(side="right")
 
         self._refresh()
+        self.update_idletasks()
+        self.minsize(max(720, self.winfo_reqwidth()), max(450, self.winfo_reqheight()))
         self.transient(parent)
         self.grab_set()
         self.protocol("WM_DELETE_WINDOW", self.destroy)
