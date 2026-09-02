@@ -1,0 +1,55 @@
+{
+  "name": "运动想象实验示例",
+  "total_duration_s": 900,
+  "selection_mode": "weighted",
+  "lsl_stream_name": "MIExperimentMarkers",
+  "lsl_source_id": "mi-experiment-designer",
+  "output_dir": "sessions",
+  "units": [
+    {
+      "name": "左手",
+      "weight": 1,
+      "phases": [
+        {
+          "name": "准备",
+          "duration_s": 3,
+          "instruction": "准备",
+          "visual": {"type": "text", "value": "+"},
+          "marker": "prepare"
+        },
+        {
+          "name": "运动想象",
+          "duration_s": 20,
+          "instruction": "想象左手抓握",
+          "visual": {"type": "text", "value": "想象左手抓握"},
+          "marker": "left_hand"
+        },
+        {
+          "name": "休息",
+          "duration_s": 7,
+          "instruction": "休息",
+          "visual": {"type": "text", "value": "休息"},
+          "marker": "rest"
+        }
+      ]
+    },
+    {
+      "name": "右手",
+      "weight": 1,
+      "phases": [
+        {"name": "准备", "duration_s": 3, "instruction": "准备", "visual": {"type": "text", "value": "+"}, "marker": "prepare"},
+        {"name": "运动想象", "duration_s": 20, "instruction": "想象右手抓握", "visual": {"type": "text", "value": "想象右手抓握"}, "marker": "right_hand"},
+        {"name": "休息", "duration_s": 7, "instruction": "休息", "visual": {"type": "text", "value": "休息"}, "marker": "rest"}
+      ]
+    },
+    {
+      "name": "双脚",
+      "weight": 1,
+      "phases": [
+        {"name": "准备", "duration_s": 3, "instruction": "准备", "visual": {"type": "text", "value": "+"}, "marker": "prepare"},
+        {"name": "运动想象", "duration_s": 20, "instruction": "想象双脚屈伸", "visual": {"type": "text", "value": "想象双脚屈伸"}, "marker": "feet"},
+        {"name": "休息", "duration_s": 7, "instruction": "休息", "visual": {"type": "text", "value": "休息"}, "marker": "rest"}
+      ]
+    }
+  ]
+}
