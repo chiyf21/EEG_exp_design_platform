@@ -7,12 +7,42 @@ from datetime import datetime
 import json
 import math
 from pathlib import Path
+import sys
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
 from experiment_core import ExperimentConfig, Phase, Unit, default_config
+
+
+UI_FONT_FAMILY = {
+    "win32": "Microsoft YaHei UI",
+    "darwin": "PingFang SC",
+}.get(sys.platform, "Noto Sans CJK SC")
+
+
+def enable_dpi_awareness() -> None:
+    """Make Tk render at physical monitor DPI on Windows instead of bitmap-scaling."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        set_context = getattr(user32, "SetProcessDpiAwarenessContext", None)
+        if set_context is not None:
+            set_context.argtypes = [ctypes.c_void_p]
+            set_context.restype = ctypes.c_bool
+            if set_context(ctypes.c_void_p(-4)):  # PER_MONITOR_AWARE_V2
+                return
+        shcore = ctypes.windll.shcore
+        if shcore.SetProcessDpiAwareness(2) == 0:  # PER_MONITOR_DPI_AWARE
+            return
+        user32.SetProcessDPIAware()
+    except (AttributeError, OSError, OverflowError):
+        # Older Windows versions may not expose every DPI API; Tk still starts.
+        return
 
 
 try:
@@ -334,7 +364,7 @@ class VisualRenderer:
 class TextRenderer(VisualRenderer):
     def show(self, canvas: tk.Canvas, phase: Phase, width: int, height: int, root: tk.Misc) -> None:
         _, value = display_visual(phase)
-        canvas.create_text(width // 2, height // 2, text=value or phase.instruction, fill="white", font=("Arial", 42), width=max(300, width - 160))
+        canvas.create_text(width // 2, height // 2, text=value or phase.instruction, fill="white", font=(UI_FONT_FAMILY, 42), width=max(300, width - 160))
 
 
 class BlankRenderer(VisualRenderer):
@@ -415,7 +445,7 @@ class PresentationWindow:
 
         self.canvas = tk.Canvas(self.window, bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.info = tk.Label(self.window, bg="#111111", fg="#cccccc", font=("Arial", 12), padx=10, pady=5)
+        self.info = tk.Label(self.window, bg="#111111", fg="#cccccc", font=(UI_FONT_FAMILY, 12), padx=10, pady=5)
         self.info.place(x=12, y=12)
         self.window.update_idletasks()
 
@@ -513,7 +543,7 @@ class PresentationWindow:
                 self.window.winfo_height() // 2,
                 text=f"媒体显示失败\n{exc}",
                 fill="#ff6666",
-                font=("Arial", 26),
+                font=(UI_FONT_FAMILY, 26),
             )
         self.canvas.update_idletasks()
         self._emit("phase/start", self.phase_scheduled_start, phase)
@@ -605,27 +635,27 @@ class ExperimentApp:
         style.configure("TFrame", background=self.colors["bg"])
         style.configure("App.TFrame", background=self.colors["bg"])
         style.configure("Card.TFrame", background=self.colors["card"])
-        style.configure("TLabel", background=self.colors["bg"], foreground=self.colors["text"], font=("Segoe UI", 10))
-        style.configure("Muted.TLabel", background=self.colors["bg"], foreground=self.colors["muted"], font=("Segoe UI", 9))
-        style.configure("Card.TLabel", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10))
-        style.configure("CardMuted.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=("Segoe UI", 9))
+        style.configure("TLabel", background=self.colors["bg"], foreground=self.colors["text"], font=(UI_FONT_FAMILY, 10))
+        style.configure("Muted.TLabel", background=self.colors["bg"], foreground=self.colors["muted"], font=(UI_FONT_FAMILY, 9))
+        style.configure("Card.TLabel", background=self.colors["card"], foreground=self.colors["text"], font=(UI_FONT_FAMILY, 10))
+        style.configure("CardMuted.TLabel", background=self.colors["card"], foreground=self.colors["muted"], font=(UI_FONT_FAMILY, 9))
         style.configure("Card.TLabelframe", background=self.colors["card"], foreground=self.colors["text"], bordercolor=self.colors["border"], relief="solid", borderwidth=1)
-        style.configure("Card.TLabelframe.Label", background=self.colors["card"], foreground=self.colors["text"], font=("Segoe UI", 10, "bold"))
+        style.configure("Card.TLabelframe.Label", background=self.colors["card"], foreground=self.colors["text"], font=(UI_FONT_FAMILY, 10, "bold"))
         style.configure("TEntry", padding=(8, 6), fieldbackground="#FFFFFF", foreground=self.colors["text"])
         style.configure("TCombobox", padding=(7, 5), fieldbackground="#FFFFFF", foreground=self.colors["text"])
         style.map("TCombobox", fieldbackground=[("readonly", "#FFFFFF")])
-        style.configure("TButton", padding=(12, 7), font=("Segoe UI", 9), foreground=self.colors["text"])
-        style.configure("Secondary.TButton", padding=(12, 7), background="#E8EDF6", foreground=self.colors["text"], font=("Segoe UI", 9))
+        style.configure("TButton", padding=(12, 7), font=(UI_FONT_FAMILY, 9), foreground=self.colors["text"])
+        style.configure("Secondary.TButton", padding=(12, 7), background="#E8EDF6", foreground=self.colors["text"], font=(UI_FONT_FAMILY, 9))
         style.map("Secondary.TButton", background=[("active", "#DCE5F4"), ("pressed", "#D2DDF0")])
-        style.configure("Accent.TButton", padding=(18, 9), background=self.colors["blue"], foreground="#FFFFFF", font=("Segoe UI", 10, "bold"))
+        style.configure("Accent.TButton", padding=(18, 9), background=self.colors["blue"], foreground="#FFFFFF", font=(UI_FONT_FAMILY, 10, "bold"))
         style.map("Accent.TButton", background=[("active", self.colors["blue_dark"]), ("pressed", self.colors["blue_dark"])])
-        style.configure("Treeview", background="#FFFFFF", fieldbackground="#FFFFFF", foreground=self.colors["text"], rowheight=36, borderwidth=0, font=("Segoe UI", 10))
-        style.configure("Treeview.Heading", background="#EEF2F8", foreground=self.colors["muted"], relief="flat", padding=(8, 8), font=("Segoe UI", 9, "bold"))
+        style.configure("Treeview", background="#FFFFFF", fieldbackground="#FFFFFF", foreground=self.colors["text"], rowheight=36, borderwidth=0, font=(UI_FONT_FAMILY, 10))
+        style.configure("Treeview.Heading", background="#EEF2F8", foreground=self.colors["muted"], relief="flat", padding=(8, 8), font=(UI_FONT_FAMILY, 9, "bold"))
         style.map("Treeview", background=[("selected", self.colors["blue"])], foreground=[("selected", "#FFFFFF")])
         style.configure("TNotebook", background=self.colors["bg"], borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure("TNotebook.Tab", background="#E7ECF5", foreground=self.colors["muted"], padding=(18, 9), font=("Segoe UI", 10))
+        style.configure("TNotebook.Tab", background="#E7ECF5", foreground=self.colors["muted"], padding=(18, 9), font=(UI_FONT_FAMILY, 10))
         style.map("TNotebook.Tab", background=[("selected", self.colors["card"])], foreground=[("selected", self.colors["blue"])])
-        style.configure("Status.TLabel", background="#EAF0FF", foreground="#2F559F", padding=(10, 7), font=("Segoe UI", 9))
+        style.configure("Status.TLabel", background="#EAF0FF", foreground="#2F559F", padding=(10, 7), font=(UI_FONT_FAMILY, 9))
 
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
@@ -637,16 +667,16 @@ class ExperimentApp:
         header.columnconfigure(0, weight=1)
         title_box = tk.Frame(header, bg=self.colors["navy"])
         title_box.grid(row=0, column=0, sticky="nsw", padx=28, pady=16)
-        tk.Label(title_box, text="MI", bg=self.colors["blue"], fg="white", font=("Segoe UI", 12, "bold"), width=4, height=2).pack(side="left", padx=(0, 14))
+        tk.Label(title_box, text="MI", bg=self.colors["blue"], fg="white", font=(UI_FONT_FAMILY, 12, "bold"), width=4, height=2).pack(side="left", padx=(0, 14))
         title_text = tk.Frame(title_box, bg=self.colors["navy"])
         title_text.pack(side="left", anchor="center")
-        tk.Label(title_text, text="运动想象实验设计器", bg=self.colors["navy"], fg="white", font=("Segoe UI", 20, "bold")).pack(anchor="w")
-        tk.Label(title_text, text="配置刺激序列 · 同步 EEG · 记录实验日志", bg=self.colors["navy"], fg="#AAB7CE", font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 0))
+        tk.Label(title_text, text="运动想象实验设计器", bg=self.colors["navy"], fg="white", font=(UI_FONT_FAMILY, 20, "bold")).pack(anchor="w")
+        tk.Label(title_text, text="配置刺激序列 · 同步 EEG · 记录实验日志", bg=self.colors["navy"], fg="#AAB7CE", font=(UI_FONT_FAMILY, 9)).pack(anchor="w", pady=(3, 0))
         ttk.Button(header, text="▶  开始实验", style="Accent.TButton", command=self._start_experiment).grid(row=0, column=1, padx=28, pady=24)
 
         toolbar = tk.Frame(self.root, bg=self.colors["bg"])
         toolbar.grid(row=1, column=0, sticky="ew", padx=24, pady=(14, 0))
-        ttk.Label(toolbar, text="实验配置", font=("Segoe UI", 11, "bold")).pack(side="left")
+        ttk.Label(toolbar, text="实验配置", font=(UI_FONT_FAMILY, 11, "bold")).pack(side="left")
         ttk.Label(toolbar, text="  先配置单元实验，再开始呈现", style="Muted.TLabel").pack(side="left", padx=(6, 0))
         actions = ttk.Frame(toolbar)
         actions.pack(side="right")
@@ -681,7 +711,7 @@ class ExperimentApp:
         self.summary_var = tk.StringVar()
         summary_card = ttk.LabelFrame(general, text="计划摘要", style="Card.TLabelframe", padding=18)
         summary_card.pack(anchor="nw", fill="x", pady=(14, 0))
-        ttk.Label(summary_card, textvariable=self.summary_var, style="Card.TLabel", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(summary_card, textvariable=self.summary_var, style="Card.TLabel", font=(UI_FONT_FAMILY, 11, "bold")).pack(anchor="w")
         ttk.Label(summary_card, text="当前版本要求各单元总时长相同；总时长不足一个整单元的余数会被忽略。", style="CardMuted.TLabel").pack(anchor="w", pady=(7, 0))
 
         library.rowconfigure(0, weight=1)
@@ -723,7 +753,7 @@ class ExperimentApp:
         status_bar = tk.Frame(self.root, bg="#EAF0FF", height=34)
         status_bar.grid(row=3, column=0, sticky="ew")
         status_bar.grid_propagate(False)
-        tk.Label(status_bar, text="●", bg="#EAF0FF", fg=self.colors["green"], font=("Segoe UI", 10)).pack(side="left", padx=(16, 5))
+        tk.Label(status_bar, text="●", bg="#EAF0FF", fg=self.colors["green"], font=(UI_FONT_FAMILY, 10)).pack(side="left", padx=(16, 5))
         ttk.Label(status_bar, textvariable=self.status_var, style="Status.TLabel", anchor="w").pack(side="left", fill="x", expand=True)
 
     def _load_form(self) -> None:
@@ -858,6 +888,7 @@ class ExperimentApp:
 
 
 def main() -> None:
+    enable_dpi_awareness()
     root = tk.Tk()
     try:
         ttk.Style(root).theme_use("clam")
