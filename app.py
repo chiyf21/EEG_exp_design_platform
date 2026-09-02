@@ -668,18 +668,23 @@ class ExperimentApp:
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(2, weight=1)
+        self.name_var = tk.StringVar()
+        self.header_title_var = tk.StringVar()
+        self.header_subtitle_var = tk.StringVar()
+        self.total_minutes_var = tk.StringVar()
+        self.selection_var = tk.StringVar()
 
-        header = tk.Frame(self.root, bg=self.colors["navy"], height=92)
+        header = tk.Frame(self.root, bg=self.colors["navy"], height=124)
         header.grid(row=0, column=0, sticky="ew")
         header.grid_propagate(False)
         header.columnconfigure(0, weight=1)
         title_box = tk.Frame(header, bg=self.colors["navy"])
-        title_box.grid(row=0, column=0, sticky="nsw", padx=28, pady=16)
+        title_box.grid(row=0, column=0, sticky="nsw", padx=28, pady=18)
         tk.Label(title_box, text="MI", bg=self.colors["blue"], fg="white", font=(UI_FONT_FAMILY, 12, "bold"), width=4, height=2).pack(side="left", padx=(0, 14))
         title_text = tk.Frame(title_box, bg=self.colors["navy"])
         title_text.pack(side="left", anchor="center")
-        tk.Label(title_text, text="运动想象实验设计器", bg=self.colors["navy"], fg="white", font=(UI_FONT_FAMILY, 20, "bold")).pack(anchor="w")
-        tk.Label(title_text, text="配置刺激序列 · 同步 EEG · 记录实验日志", bg=self.colors["navy"], fg="#AAB7CE", font=(UI_FONT_FAMILY, 9)).pack(anchor="w", pady=(3, 0))
+        tk.Label(title_text, textvariable=self.header_title_var, bg=self.colors["navy"], fg="white", font=(UI_FONT_FAMILY, 20, "bold"), justify="left", anchor="w", wraplength=650).pack(anchor="w")
+        tk.Label(title_text, textvariable=self.header_subtitle_var, bg=self.colors["navy"], fg="#AAB7CE", font=(UI_FONT_FAMILY, 10), justify="left", anchor="w", wraplength=650).pack(anchor="w", pady=(6, 0))
         ttk.Button(header, text="▶  开始实验", style="Accent.TButton", command=self._start_experiment).grid(row=0, column=1, padx=28, pady=24)
 
         toolbar = tk.Frame(self.root, bg=self.colors["bg"])
@@ -700,9 +705,6 @@ class ExperimentApp:
         notebook.add(library, text="单元实验库")
         notebook.add(lsl, text="LSL / 输出")
 
-        self.name_var = tk.StringVar()
-        self.total_minutes_var = tk.StringVar()
-        self.selection_var = tk.StringVar()
         settings_card = ttk.LabelFrame(general, text="基础设置", style="Card.TLabelframe", padding=18)
         settings_card.pack(anchor="nw", fill="x")
         settings_card.columnconfigure(1, weight=1)
@@ -710,11 +712,16 @@ class ExperimentApp:
         form.grid(row=0, column=0, sticky="ew")
         ttk.Label(form, text="实验名称", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=7)
         ttk.Entry(form, textvariable=self.name_var, width=44).grid(row=0, column=1, sticky="w", pady=6)
-        ttk.Label(form, text="总实验时间（分钟）", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=7)
-        ttk.Entry(form, textvariable=self.total_minutes_var, width=12).grid(row=1, column=1, sticky="w", pady=6)
-        ttk.Label(form, text="单元抽取方式", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=7)
-        ttk.Combobox(form, textvariable=self.selection_var, values=tuple(SELECTION_LABELS.values()), state="readonly", width=26).grid(row=2, column=1, sticky="w", pady=6)
-        ttk.Label(form, text="按比例模式会先分配配额并打乱顺序；随机模式每次独立抽取。", style="CardMuted.TLabel").grid(row=3, column=1, sticky="w", pady=(2, 0))
+        ttk.Label(form, text="界面主标题", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=7)
+        ttk.Entry(form, textvariable=self.header_title_var, width=44).grid(row=1, column=1, sticky="w", pady=6)
+        ttk.Label(form, text="界面副标题", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=7)
+        ttk.Entry(form, textvariable=self.header_subtitle_var, width=54).grid(row=2, column=1, sticky="w", pady=6)
+        ttk.Label(form, text="标题会显示在顶部；副标题用于补充实验说明。", style="CardMuted.TLabel").grid(row=3, column=1, sticky="w", pady=(2, 0))
+        ttk.Label(form, text="总实验时间（分钟）", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=7)
+        ttk.Entry(form, textvariable=self.total_minutes_var, width=12).grid(row=4, column=1, sticky="w", pady=6)
+        ttk.Label(form, text="单元抽取方式", style="Card.TLabel").grid(row=5, column=0, sticky="w", pady=7)
+        ttk.Combobox(form, textvariable=self.selection_var, values=tuple(SELECTION_LABELS.values()), state="readonly", width=26).grid(row=5, column=1, sticky="w", pady=6)
+        ttk.Label(form, text="按比例模式会先分配配额并打乱顺序；随机模式每次独立抽取。", style="CardMuted.TLabel").grid(row=6, column=1, sticky="w", pady=(2, 0))
 
         self.summary_var = tk.StringVar()
         summary_card = ttk.LabelFrame(general, text="计划摘要", style="Card.TLabelframe", padding=18)
@@ -766,6 +773,8 @@ class ExperimentApp:
 
     def _load_form(self) -> None:
         self.name_var.set(self.config.name)
+        self.header_title_var.set(self.config.header_title)
+        self.header_subtitle_var.set(self.config.header_subtitle)
         self.total_minutes_var.set(f"{self.config.total_duration_s / 60:g}")
         self.selection_var.set(SELECTION_LABELS.get(self.config.selection_mode, SELECTION_LABELS["weighted"]))
         self.lsl_name_var.set(self.config.lsl_stream_name)
@@ -795,6 +804,8 @@ class ExperimentApp:
 
     def _sync_form(self) -> None:
         self.config.name = self.name_var.get().strip()
+        self.config.header_title = self.header_title_var.get().strip()
+        self.config.header_subtitle = self.header_subtitle_var.get().strip()
         self.config.total_duration_s = float(self.total_minutes_var.get()) * 60
         label_to_mode = {label: mode for mode, label in SELECTION_LABELS.items()}
         self.config.selection_mode = label_to_mode[self.selection_var.get()]

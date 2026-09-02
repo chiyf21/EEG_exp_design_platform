@@ -1,5 +1,7 @@
 {
   "name": "运动想象实验示例",
+  "header_title": "运动想象实验设计器",
+  "header_subtitle": "配置刺激序列 · 同步 EEG · 记录实验日志",
   "total_duration_s": 900,
   "selection_mode": "weighted",
   "lsl_stream_name": "MIExperimentMarkers",

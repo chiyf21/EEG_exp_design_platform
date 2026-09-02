@@ -96,6 +96,8 @@ class Unit:
 @dataclass
 class ExperimentConfig:
     name: str = "运动想象实验"
+    header_title: str = "运动想象实验设计器"
+    header_subtitle: str = "配置刺激序列 · 同步 EEG · 记录实验日志"
     total_duration_s: float = 900.0
     selection_mode: str = "weighted"
     units: list[Unit] = field(default_factory=list)
@@ -107,6 +109,8 @@ class ExperimentConfig:
     def from_dict(cls, data: dict[str, Any]) -> "ExperimentConfig":
         return cls(
             name=str(data.get("name", "运动想象实验")),
+            header_title=str(data.get("header_title", "运动想象实验设计器")),
+            header_subtitle=str(data.get("header_subtitle", "配置刺激序列 · 同步 EEG · 记录实验日志")),
             total_duration_s=float(data.get("total_duration_s", 900)),
             selection_mode=str(data.get("selection_mode", "weighted")),
             units=[Unit.from_dict(item) for item in data.get("units", [])],
@@ -122,6 +126,8 @@ class ExperimentConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
+            "header_title": self.header_title,
+            "header_subtitle": self.header_subtitle,
             "total_duration_s": self.total_duration_s,
             "selection_mode": self.selection_mode,
             "lsl_stream_name": self.lsl_stream_name,
@@ -137,6 +143,10 @@ class ExperimentConfig:
     def validate(self) -> None:
         if not self.name.strip():
             raise ValueError("实验名称不能为空")
+        if not self.header_title.strip():
+            raise ValueError("界面主标题不能为空")
+        if not self.header_subtitle.strip():
+            raise ValueError("界面副标题不能为空")
         if not math.isfinite(self.total_duration_s) or self.total_duration_s <= 0:
             raise ValueError("总实验时长必须大于 0")
         if self.selection_mode not in {"weighted", "random"}:
