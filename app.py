@@ -318,7 +318,7 @@ class UnitDialog(tk.Toplevel):
 
 
 class LslMarker:
-    def __init__(self, stream_name: str, source_id: str, status: Callable[[str], None]):
+    def __init__(self, stream_name: str, stream_type: str, source_id: str, status: Callable[[str], None]):
         self.status = status
         self.outlet = None
         self.enabled = False
@@ -326,10 +326,10 @@ class LslMarker:
             self.status("LSL 未安装：实验仍可本地运行，但不会发送 marker")
             return
         try:
-            info = StreamInfo(stream_name, "Markers", 1, 0, "string", source_id)
+            info = StreamInfo(stream_name, stream_type, 1, 0, "string", source_id)
             self.outlet = StreamOutlet(info)
             self.enabled = True
-            self.status(f"LSL marker 流已创建：{stream_name}")
+            self.status(f"LSL marker 流已创建：{stream_name} / {stream_type}")
         except Exception as exc:  # Hardware/runtime setup must not crash the GUI.
             self.status(f"LSL 初始化失败：{exc}")
 
@@ -597,7 +597,7 @@ class PresentationWindow:
         self.speech = SpeechWorker(config.speech_rate) if config.speech_enabled else None
         if self.speech:
             self.speech.ready.wait(timeout=2.0)
-        self.marker = LslMarker(config.lsl_stream_name, config.lsl_source_id, self._set_status)
+        self.marker = LslMarker(config.lsl_stream_name, config.lsl_stream_type, config.lsl_source_id, self._set_status)
         output_dir = Path(config.output_dir)
         if not output_dir.is_absolute():
             output_dir = base_dir / output_dir
@@ -640,20 +640,10 @@ class PresentationWindow:
     def _emit(self, event: str, scheduled_elapsed_s: float, phase: Phase | None = None) -> None:
         actual_elapsed = time.perf_counter() - self.session_start
         unit = self.plan[self.current_trial] if self.plan and self.current_trial < len(self.plan) else None
-        payload: dict[str, Any] = {
-            "event": event,
-            "experiment": self.config.name,
-            "trial_index": self.current_trial,
-            "unit": unit.name if unit else "",
-            "phase_index": self.current_phase if phase else "",
-            "phase": phase.name if phase else "",
-            "marker": phase.marker if phase else "",
-            "scheduled_elapsed_s": round(scheduled_elapsed_s, 6),
-            "actual_elapsed_s": round(actual_elapsed, 6),
-        }
-        if phase and phase.marker:
-            payload["instruction_marker"] = phase.marker
-        lsl_timestamp = self.marker.emit(payload)
+        lsl_timestamp = None
+        if event == "phase/start" and phase is not None:
+            instruction = phase.instruction.strip() or phase.name.strip()
+            lsl_timestamp = self.marker.emit({"instruction": instruction})
         self.log.write(
             wall_time=datetime.now().isoformat(timespec="milliseconds"),
             lsl_timestamp="" if lsl_timestamp is None else f"{lsl_timestamp:.9f}",
@@ -912,16 +902,24 @@ class ExperimentApp:
         ttk.Label(unit_buttons, text="双击表格行也可以编辑", style="Muted.TLabel").pack(side="left", padx=(8, 0))
 
         self.lsl_name_var = tk.StringVar()
+        self.lsl_type_var = tk.StringVar()
         self.lsl_source_var = tk.StringVar()
         self.output_dir_var = tk.StringVar()
         lsl_card = ttk.LabelFrame(lsl, text="同步与日志", style="Card.TLabelframe", padding=18)
         lsl_card.pack(anchor="nw", fill="x")
         lsl_form = ttk.Frame(lsl_card, style="Card.TFrame")
         lsl_form.pack(anchor="nw", fill="x")
-        for row, (label, variable, width) in enumerate((("LSL stream name", self.lsl_name_var, 44), ("LSL source id", self.lsl_source_var, 44), ("日志目录", self.output_dir_var, 44))):
+        lsl_fields = (
+            ("LSL stream name / trigger name", self.lsl_name_var),
+            ("LSL stream type / trigger type", self.lsl_type_var),
+            ("LSL source id", self.lsl_source_var),
+            ("日志目录", self.output_dir_var),
+        )
+        for row, (label, variable) in enumerate(lsl_fields):
             ttk.Label(lsl_form, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=7)
-            ttk.Entry(lsl_form, textvariable=variable, width=width).grid(row=row, column=1, sticky="w", pady=6)
-        ttk.Label(lsl_card, text="发送内容：单通道 string marker，内容为 JSON；详见 README。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
+            ttk.Entry(lsl_form, textvariable=variable, width=44).grid(row=row, column=1, sticky="w", pady=6)
+        ttk.Label(lsl_card, text="同步盒场景建议使用 MITrigger；接收端的 name 和 type 必须与这里完全一致。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
+        ttk.Label(lsl_card, text="LSL 仅在每个阶段开始时发送当前指令：{\"instruction\":\"...\"}。", style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
 
         self.speech_enabled_var = tk.BooleanVar(value=False)
         self.speech_rate_var = tk.StringVar(value="170")
@@ -949,6 +947,7 @@ class ExperimentApp:
         self.total_minutes_var.set(f"{self.config.total_duration_s / 60:g}")
         self.selection_var.set(SELECTION_LABELS.get(self.config.selection_mode, SELECTION_LABELS["weighted"]))
         self.lsl_name_var.set(self.config.lsl_stream_name)
+        self.lsl_type_var.set(self.config.lsl_stream_type)
         self.lsl_source_var.set(self.config.lsl_source_id)
         self.output_dir_var.set(self.config.output_dir)
         self.speech_enabled_var.set(self.config.speech_enabled)
@@ -983,6 +982,7 @@ class ExperimentApp:
         label_to_mode = {label: mode for mode, label in SELECTION_LABELS.items()}
         self.config.selection_mode = label_to_mode[self.selection_var.get()]
         self.config.lsl_stream_name = self.lsl_name_var.get().strip()
+        self.config.lsl_stream_type = self.lsl_type_var.get().strip()
         self.config.lsl_source_id = self.lsl_source_var.get().strip()
         self.config.output_dir = self.output_dir_var.get().strip() or "sessions"
         self.config.speech_enabled = self.speech_enabled_var.get()

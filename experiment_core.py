@@ -102,6 +102,7 @@ class ExperimentConfig:
     selection_mode: str = "weighted"
     units: list[Unit] = field(default_factory=list)
     lsl_stream_name: str = "MIExperimentMarkers"
+    lsl_stream_type: str = "MITrigger"
     lsl_source_id: str = "mi-experiment-designer"
     output_dir: str = "sessions"
     speech_enabled: bool = False
@@ -117,6 +118,7 @@ class ExperimentConfig:
             selection_mode=str(data.get("selection_mode", "weighted")),
             units=[Unit.from_dict(item) for item in data.get("units", [])],
             lsl_stream_name=str(data.get("lsl_stream_name", "MIExperimentMarkers")),
+            lsl_stream_type=str(data.get("lsl_stream_type", "MITrigger")),
             lsl_source_id=str(data.get("lsl_source_id", "mi-experiment-designer")),
             output_dir=str(data.get("output_dir", "sessions")),
             speech_enabled=bool(data.get("speech_enabled", False)),
@@ -135,6 +137,7 @@ class ExperimentConfig:
             "total_duration_s": self.total_duration_s,
             "selection_mode": self.selection_mode,
             "lsl_stream_name": self.lsl_stream_name,
+            "lsl_stream_type": self.lsl_stream_type,
             "lsl_source_id": self.lsl_source_id,
             "output_dir": self.output_dir,
             "speech_enabled": self.speech_enabled,
@@ -153,6 +156,10 @@ class ExperimentConfig:
             raise ValueError("界面主标题不能为空")
         if not self.header_subtitle.strip():
             raise ValueError("界面副标题不能为空")
+        if not self.lsl_stream_name.strip():
+            raise ValueError("LSL stream name 不能为空")
+        if not self.lsl_stream_type.strip():
+            raise ValueError("LSL stream type 不能为空")
         if not 80 <= self.speech_rate <= 300:
             raise ValueError("语速必须在 80 到 300 之间")
         if not math.isfinite(self.total_duration_s) or self.total_duration_s <= 0:
@@ -248,6 +255,7 @@ def self_check() -> None:
     config.validate()
     assert config.speech_enabled is False
     assert config.speech_rate == 170
+    assert config.lsl_stream_type == "MITrigger"
     assert config.unit_duration_s == 30
     assert config.planned_trial_count == 30
     plan = config.build_plan(random.Random(7))
@@ -262,6 +270,7 @@ def self_check() -> None:
     restored = ExperimentConfig.from_dict(json.loads(encoded))
     assert restored.unit_duration_s == 30
     assert restored.speech_enabled is False
+    assert restored.lsl_stream_type == "MITrigger"
 
 
 if __name__ == "__main__":

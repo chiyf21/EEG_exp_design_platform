@@ -5,6 +5,7 @@
   "total_duration_s": 900,
   "selection_mode": "weighted",
   "lsl_stream_name": "MIExperimentMarkers",
+  "lsl_stream_type": "MITrigger",
   "lsl_source_id": "mi-experiment-designer",
   "output_dir": "sessions",
   "speech_enabled": false,

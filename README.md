@@ -9,7 +9,7 @@
 - 阶段显示文本、空白屏、图片或视频；
 - 实验呈现时中央指令使用大字号，左上角显示下一步动作提示；
 - 可选启用离线语音播报，在每个阶段开始时朗读指令；
-- 通过 LSL 发送 JSON string marker；
+- 通过 LSL 在每个阶段开始时发送当前指令 JSON；
 - 每次实验输出 CSV 时序日志。
 
 ## 运行
@@ -28,13 +28,15 @@ python app.py
 
 ## LSL marker
 
-程序创建一个 `Markers` 类型、单通道、string 格式的 LSL stream。每个样本是一条 JSON，例如：
+程序创建一个可配置类型、单通道、string 格式的 LSL stream。默认 stream name 是 `MIExperimentMarkers`，默认 type 是 `MITrigger`；使用同步盒时，接收端的 name 和 type 需要与界面中的设置完全一致。
+
+LSL 只在每个阶段开始时发送当前指令，每个样本是一条 JSON，例如：
 
 ```json
-{"event":"phase/start","experiment":"运动想象实验","trial_index":0,"unit":"左手","phase_index":1,"phase":"运动想象","marker":"left_hand","scheduled_elapsed_s":3.0,"actual_elapsed_s":3.012}
+{"instruction":"Imagine left hand grasping"}
 ```
 
-会发送的主要事件是：`experiment/start`、`unit/start`、`phase/start`、`phase/end`、`unit/end`、`experiment/end`；按 Esc 停止时发送 `experiment/aborted`。同步时建议使用 LSL timestamp，不要使用 CSV 的本地时间。
+指令内容就是阶段编辑器中的“指令”文字，程序不会自动翻译；可以直接填写英文。时间由 LSL sample timestamp 提供，不写入 JSON。实验的完整事件时序仍会写入本地 CSV，但不会通过 LSL 发送。
 
 ## 时序边界
 
