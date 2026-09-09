@@ -101,9 +101,12 @@ class ExperimentConfig:
     total_duration_s: float = 900.0
     selection_mode: str = "weighted"
     units: list[Unit] = field(default_factory=list)
+    trigger_output: str = "lsl"
     lsl_stream_name: str = "MIExperimentMarkers"
     lsl_stream_type: str = "MITrigger"
     lsl_source_id: str = "mi-experiment-designer"
+    serial_port: str = ""
+    serial_baudrate: int = 115200
     output_dir: str = "sessions"
     speech_enabled: bool = False
     speech_rate: int = 170
@@ -117,9 +120,12 @@ class ExperimentConfig:
             total_duration_s=float(data.get("total_duration_s", 900)),
             selection_mode=str(data.get("selection_mode", "weighted")),
             units=[Unit.from_dict(item) for item in data.get("units", [])],
+            trigger_output=str(data.get("trigger_output", "lsl")),
             lsl_stream_name=str(data.get("lsl_stream_name", "MIExperimentMarkers")),
             lsl_stream_type=str(data.get("lsl_stream_type", "MITrigger")),
             lsl_source_id=str(data.get("lsl_source_id", "mi-experiment-designer")),
+            serial_port=str(data.get("serial_port", "")),
+            serial_baudrate=int(data.get("serial_baudrate", 115200)),
             output_dir=str(data.get("output_dir", "sessions")),
             speech_enabled=bool(data.get("speech_enabled", False)),
             speech_rate=int(data.get("speech_rate", 170)),
@@ -136,9 +142,12 @@ class ExperimentConfig:
             "header_subtitle": self.header_subtitle,
             "total_duration_s": self.total_duration_s,
             "selection_mode": self.selection_mode,
+            "trigger_output": self.trigger_output,
             "lsl_stream_name": self.lsl_stream_name,
             "lsl_stream_type": self.lsl_stream_type,
             "lsl_source_id": self.lsl_source_id,
+            "serial_port": self.serial_port,
+            "serial_baudrate": self.serial_baudrate,
             "output_dir": self.output_dir,
             "speech_enabled": self.speech_enabled,
             "speech_rate": self.speech_rate,
@@ -156,10 +165,17 @@ class ExperimentConfig:
             raise ValueError("界面主标题不能为空")
         if not self.header_subtitle.strip():
             raise ValueError("界面副标题不能为空")
+        if self.trigger_output not in {"lsl", "serial"}:
+            raise ValueError("trigger_output 只能是 lsl 或 serial")
         if not self.lsl_stream_name.strip():
             raise ValueError("LSL stream name 不能为空")
         if not self.lsl_stream_type.strip():
             raise ValueError("LSL stream type 不能为空")
+        if self.trigger_output == "serial":
+            if not self.serial_port.strip():
+                raise ValueError("USB 串口模式下必须填写串口端口")
+            if self.serial_baudrate <= 0:
+                raise ValueError("USB 串口波特率必须大于 0")
         if not 80 <= self.speech_rate <= 300:
             raise ValueError("语速必须在 80 到 300 之间")
         if not math.isfinite(self.total_duration_s) or self.total_duration_s <= 0:
@@ -255,7 +271,10 @@ def self_check() -> None:
     config.validate()
     assert config.speech_enabled is False
     assert config.speech_rate == 170
+    assert config.trigger_output == "lsl"
     assert config.lsl_stream_type == "MITrigger"
+    assert config.serial_port == ""
+    assert config.serial_baudrate == 115200
     assert config.unit_duration_s == 30
     assert config.planned_trial_count == 30
     plan = config.build_plan(random.Random(7))
@@ -270,7 +289,9 @@ def self_check() -> None:
     restored = ExperimentConfig.from_dict(json.loads(encoded))
     assert restored.unit_duration_s == 30
     assert restored.speech_enabled is False
+    assert restored.trigger_output == "lsl"
     assert restored.lsl_stream_type == "MITrigger"
+    assert restored.serial_baudrate == 115200
 
 
 if __name__ == "__main__":

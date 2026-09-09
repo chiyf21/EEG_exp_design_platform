@@ -54,6 +54,12 @@ except ImportError:  # The GUI can still be designed/tested without LSL installe
 
 
 try:
+    from serial import Serial
+except ImportError:  # USB serial output is optional when using LSL.
+    Serial = None
+
+
+try:
     from PIL import Image, ImageTk
 except ImportError:
     Image = ImageTk = None
@@ -74,6 +80,11 @@ except ImportError:
 SELECTION_LABELS = {
     "weighted": "按比例（权重配额）",
     "random": "随机（按权重抽取）",
+}
+
+TRIGGER_OUTPUT_LABELS = {
+    "lsl": "LSL",
+    "serial": "USB 串口",
 }
 
 
@@ -342,10 +353,56 @@ class LslMarker:
 
     def close(self) -> None:
         self.outlet = None
+        self.enabled = False
+
+
+class SerialTrigger:
+    """Assume a USB serial device accepts one UTF-8 JSON line per trigger."""
+
+    def __init__(self, port: str, baudrate: int, status: Callable[[str], None]):
+        self.status = status
+        self.serial = None
+        self.enabled = False
+        if Serial is None:
+            self.status("USB 串口需要安装 pyserial")
+            return
+        if not port.strip():
+            self.status("USB 串口未配置端口")
+            return
+        try:
+            self.serial = Serial(port=port.strip(), baudrate=baudrate, timeout=0, write_timeout=1)
+            self.enabled = True
+            self.status(f"USB 串口已连接：{port.strip()} / {baudrate} baud")
+        except Exception as exc:  # Hardware/runtime setup must not crash the GUI.
+            self.status(f"USB 串口初始化失败：{exc}")
+
+    def emit(self, payload: dict[str, Any]) -> float | None:
+        if not self.serial or not self.enabled:
+            return None
+        try:
+            data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+            self.serial.write(data)
+            self.serial.flush()
+        except Exception as exc:  # A disconnected device must not crash the experiment GUI.
+            self.enabled = False
+            self.status(f"USB 串口发送失败：{exc}")
+        return None
+
+    def close(self) -> None:
+        if self.serial:
+            self.serial.close()
+        self.serial = None
+        self.enabled = False
+
+
+def create_trigger_output(config: ExperimentConfig, status: Callable[[str], None]) -> LslMarker | SerialTrigger:
+    if config.trigger_output == "serial":
+        return SerialTrigger(config.serial_port, config.serial_baudrate, status)
+    return LslMarker(config.lsl_stream_name, config.lsl_stream_type, config.lsl_source_id, status)
 
 
 class ExperimentReadyDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, config: ExperimentConfig, marker: LslMarker):
+    def __init__(self, parent: tk.Misc, config: ExperimentConfig, marker: LslMarker | SerialTrigger):
         super().__init__(parent)
         self.title("实验准备")
         self.geometry("680x360")
@@ -360,8 +417,12 @@ class ExperimentReadyDialog(tk.Toplevel):
         body = ttk.Frame(self, padding=24)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text="正式实验准备", font=(UI_FONT_FAMILY, 16, "bold")).pack(anchor="w")
-        ttk.Label(body, text="LSL stream 已提前建立。请先让接收端开始采集，确认收到测试指令后再开始正式实验。", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 18))
-        ttk.Label(body, text=f"stream name: {config.lsl_stream_name}    |    stream type: {config.lsl_stream_type}").pack(anchor="w")
+        ttk.Label(body, text="触发通道已提前建立。请先让接收端开始采集，确认收到测试指令后再开始正式实验。", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 18))
+        if config.trigger_output == "serial":
+            output_info = f"USB serial port: {config.serial_port}    |    baudrate: {config.serial_baudrate}"
+        else:
+            output_info = f"LSL stream name: {config.lsl_stream_name}    |    type: {config.lsl_stream_type}"
+        ttk.Label(body, text=output_info).pack(anchor="w")
 
         form = ttk.Frame(body)
         form.pack(fill="x", pady=(18, 8))
@@ -383,9 +444,13 @@ class ExperimentReadyDialog(tk.Toplevel):
         if not instruction:
             messagebox.showwarning("测试指令为空", "请输入一条测试指令。", parent=self)
             return
-        timestamp = self.marker.emit({"instruction": instruction})
-        if timestamp is None:
-            self.status_var.set("测试指令未发送：LSL 尚未就绪，请检查 pylsl 和 stream 设置。")
+        try:
+            self.marker.emit({"instruction": instruction})
+        except Exception as exc:
+            self.status_var.set(f"测试指令发送失败：{exc}")
+            return
+        if not self.marker.enabled:
+            self.status_var.set("测试指令未发送：触发通道尚未就绪，请检查依赖、端口和设备设置。")
         else:
             self.status_var.set(f"测试指令已发送：{instruction}；请在接收端确认。")
 
@@ -621,7 +686,7 @@ class VideoRenderer(VisualRenderer):
 
 
 class PresentationWindow:
-    def __init__(self, parent: tk.Misc, config: ExperimentConfig, plan: list[Unit], base_dir: Path, on_done: Callable[[Path | None], None], marker: LslMarker | None = None):
+    def __init__(self, parent: tk.Misc, config: ExperimentConfig, plan: list[Unit], base_dir: Path, on_done: Callable[[Path | None], None], marker: LslMarker | SerialTrigger | None = None):
         self.parent = parent
         self.config = config
         self.plan = plan
@@ -653,9 +718,12 @@ class PresentationWindow:
         self.speech = SpeechWorker(config.speech_rate) if config.speech_enabled else None
         if self.speech:
             self.speech.ready.wait(timeout=2.0)
-        self.marker = marker or LslMarker(config.lsl_stream_name, config.lsl_stream_type, config.lsl_source_id, self._set_status)
+        self.marker = marker or create_trigger_output(config, self._set_status)
         if marker:
-            self._set_status(f"LSL marker 流已就绪：{config.lsl_stream_name} / {config.lsl_stream_type}")
+            if config.trigger_output == "serial":
+                self._set_status(f"USB 串口已就绪：{config.serial_port} / {config.serial_baudrate} baud")
+            else:
+                self._set_status(f"LSL marker 流已就绪：{config.lsl_stream_name} / {config.lsl_stream_type}")
         output_dir = Path(config.output_dir)
         if not output_dir.is_absolute():
             output_dir = base_dir / output_dir
@@ -807,6 +875,7 @@ class PresentationWindow:
             self.speech.close()
         for renderer in self.renderers.values():
             renderer.stop()
+        self.marker.close()
         self.log.close()
         self.window.destroy()
 
@@ -959,25 +1028,32 @@ class ExperimentApp:
             ttk.Button(unit_buttons, text=text, style="Secondary.TButton", command=command).pack(side="left", padx=(0, 6))
         ttk.Label(unit_buttons, text="双击表格行也可以编辑", style="Muted.TLabel").pack(side="left", padx=(8, 0))
 
+        self.trigger_output_var = tk.StringVar()
         self.lsl_name_var = tk.StringVar()
         self.lsl_type_var = tk.StringVar()
         self.lsl_source_var = tk.StringVar()
+        self.serial_port_var = tk.StringVar()
+        self.serial_baudrate_var = tk.StringVar()
         self.output_dir_var = tk.StringVar()
         lsl_card = ttk.LabelFrame(lsl, text="同步与日志", style="Card.TLabelframe", padding=18)
         lsl_card.pack(anchor="nw", fill="x")
         lsl_form = ttk.Frame(lsl_card, style="Card.TFrame")
         lsl_form.pack(anchor="nw", fill="x")
+        ttk.Label(lsl_form, text="触发输出方式", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=7)
+        ttk.Combobox(lsl_form, textvariable=self.trigger_output_var, values=tuple(TRIGGER_OUTPUT_LABELS.values()), state="readonly", width=41).grid(row=0, column=1, sticky="w", pady=6)
         lsl_fields = (
             ("LSL stream name / trigger name", self.lsl_name_var),
             ("LSL stream type / trigger type", self.lsl_type_var),
             ("LSL source id", self.lsl_source_var),
+            ("USB 串口端口", self.serial_port_var),
+            ("USB 波特率", self.serial_baudrate_var),
             ("日志目录", self.output_dir_var),
         )
-        for row, (label, variable) in enumerate(lsl_fields):
+        for row, (label, variable) in enumerate(lsl_fields, start=1):
             ttk.Label(lsl_form, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=7)
             ttk.Entry(lsl_form, textvariable=variable, width=44).grid(row=row, column=1, sticky="w", pady=6)
-        ttk.Label(lsl_card, text="同步盒场景建议使用 MITrigger；接收端的 name 和 type 必须与这里完全一致。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
-        ttk.Label(lsl_card, text="LSL 仅在每个阶段开始时发送当前指令：{\"instruction\":\"...\"}。", style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
+        ttk.Label(lsl_card, text="LSL 场景下接收端的 name 和 type 必须与这里完全一致；同步盒场景建议使用 MITrigger。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
+        ttk.Label(lsl_card, text="USB 串口当前按 UTF-8 JSON + 换行发送，例如 {\"instruction\":\"...\"}；最终协议需以同步盒说明为准。", style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
 
         self.speech_enabled_var = tk.BooleanVar(value=False)
         self.speech_rate_var = tk.StringVar(value="170")
@@ -1004,9 +1080,12 @@ class ExperimentApp:
         self.header_subtitle_var.set(self.config.header_subtitle)
         self.total_minutes_var.set(f"{self.config.total_duration_s / 60:g}")
         self.selection_var.set(SELECTION_LABELS.get(self.config.selection_mode, SELECTION_LABELS["weighted"]))
+        self.trigger_output_var.set(TRIGGER_OUTPUT_LABELS.get(self.config.trigger_output, TRIGGER_OUTPUT_LABELS["lsl"]))
         self.lsl_name_var.set(self.config.lsl_stream_name)
         self.lsl_type_var.set(self.config.lsl_stream_type)
         self.lsl_source_var.set(self.config.lsl_source_id)
+        self.serial_port_var.set(self.config.serial_port)
+        self.serial_baudrate_var.set(str(self.config.serial_baudrate))
         self.output_dir_var.set(self.config.output_dir)
         self.speech_enabled_var.set(self.config.speech_enabled)
         self.speech_rate_var.set(str(self.config.speech_rate))
@@ -1039,9 +1118,14 @@ class ExperimentApp:
         self.config.total_duration_s = float(self.total_minutes_var.get()) * 60
         label_to_mode = {label: mode for mode, label in SELECTION_LABELS.items()}
         self.config.selection_mode = label_to_mode[self.selection_var.get()]
+        output_to_mode = {label: mode for mode, label in TRIGGER_OUTPUT_LABELS.items()}
+        self.config.trigger_output = output_to_mode[self.trigger_output_var.get()]
         self.config.lsl_stream_name = self.lsl_name_var.get().strip()
         self.config.lsl_stream_type = self.lsl_type_var.get().strip()
         self.config.lsl_source_id = self.lsl_source_var.get().strip()
+        self.config.serial_port = self.serial_port_var.get().strip()
+        baudrate = self.serial_baudrate_var.get().strip()
+        self.config.serial_baudrate = int(baudrate) if baudrate else 115200
         self.config.output_dir = self.output_dir_var.get().strip() or "sessions"
         self.config.speech_enabled = self.speech_enabled_var.get()
         self.config.speech_rate = int(self.speech_rate_var.get())
@@ -1130,7 +1214,7 @@ class ExperimentApp:
             extra = self.config.total_duration_s - self.config.planned_duration_s
             if not messagebox.askyesno("时长提示", f"总时长会剩余 {extra:.2f} 秒未使用，继续吗？", parent=self.root):
                 return
-        marker = LslMarker(self.config.lsl_stream_name, self.config.lsl_stream_type, self.config.lsl_source_id, self.status_var.set)
+        marker = create_trigger_output(self.config, self.status_var.set)
         dialog = ExperimentReadyDialog(self.root, self.config, marker)
         self.root.wait_window(dialog)
         if not dialog.result:
