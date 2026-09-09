@@ -340,6 +340,62 @@ class LslMarker:
         self.outlet.push_sample([json.dumps(payload, ensure_ascii=False, separators=(",", ":"))], timestamp=timestamp)
         return timestamp
 
+    def close(self) -> None:
+        self.outlet = None
+
+
+class ExperimentReadyDialog(tk.Toplevel):
+    def __init__(self, parent: tk.Misc, config: ExperimentConfig, marker: LslMarker):
+        super().__init__(parent)
+        self.title("实验准备")
+        self.geometry("680x360")
+        self.minsize(600, 320)
+        self.transient(parent)
+        self.grab_set()
+        self.marker = marker
+        self.result = False
+        self.test_instruction_var = tk.StringVar(value="TEST_TRIGGER")
+        self.status_var = tk.StringVar(value="请先启动接收端采集，再发送测试指令。")
+
+        body = ttk.Frame(self, padding=24)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="正式实验准备", font=(UI_FONT_FAMILY, 16, "bold")).pack(anchor="w")
+        ttk.Label(body, text="LSL stream 已提前建立。请先让接收端开始采集，确认收到测试指令后再开始正式实验。", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 18))
+        ttk.Label(body, text=f"stream name: {config.lsl_stream_name}    |    stream type: {config.lsl_stream_type}").pack(anchor="w")
+
+        form = ttk.Frame(body)
+        form.pack(fill="x", pady=(18, 8))
+        ttk.Label(form, text="测试指令").pack(side="left")
+        ttk.Entry(form, textvariable=self.test_instruction_var, width=42).pack(side="left", padx=(12, 8))
+        ttk.Button(form, text="发送测试指令", command=self._send_test).pack(side="left")
+        ttk.Label(body, textvariable=self.status_var, style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(4, 0))
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", side="bottom", pady=(20, 0))
+        ttk.Button(buttons, text="取消", command=self._cancel).pack(side="right", padx=(8, 0))
+        ttk.Button(buttons, text="开始正式实验", style="Accent.TButton", command=self._start).pack(side="right")
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.update_idletasks()
+        self.minsize(max(600, self.winfo_reqwidth()), max(320, self.winfo_reqheight()))
+
+    def _send_test(self) -> None:
+        instruction = self.test_instruction_var.get().strip()
+        if not instruction:
+            messagebox.showwarning("测试指令为空", "请输入一条测试指令。", parent=self)
+            return
+        timestamp = self.marker.emit({"instruction": instruction})
+        if timestamp is None:
+            self.status_var.set("测试指令未发送：LSL 尚未就绪，请检查 pylsl 和 stream 设置。")
+        else:
+            self.status_var.set(f"测试指令已发送：{instruction}；请在接收端确认。")
+
+    def _start(self) -> None:
+        self.result = True
+        self.destroy()
+
+    def _cancel(self) -> None:
+        self.destroy()
+
 
 class SpeechWorker:
     """Run offline TTS outside Tk's timing loop and keep only the newest phrase."""
@@ -565,7 +621,7 @@ class VideoRenderer(VisualRenderer):
 
 
 class PresentationWindow:
-    def __init__(self, parent: tk.Misc, config: ExperimentConfig, plan: list[Unit], base_dir: Path, on_done: Callable[[Path | None], None]):
+    def __init__(self, parent: tk.Misc, config: ExperimentConfig, plan: list[Unit], base_dir: Path, on_done: Callable[[Path | None], None], marker: LslMarker | None = None):
         self.parent = parent
         self.config = config
         self.plan = plan
@@ -597,7 +653,9 @@ class PresentationWindow:
         self.speech = SpeechWorker(config.speech_rate) if config.speech_enabled else None
         if self.speech:
             self.speech.ready.wait(timeout=2.0)
-        self.marker = LslMarker(config.lsl_stream_name, config.lsl_stream_type, config.lsl_source_id, self._set_status)
+        self.marker = marker or LslMarker(config.lsl_stream_name, config.lsl_stream_type, config.lsl_source_id, self._set_status)
+        if marker:
+            self._set_status(f"LSL marker 流已就绪：{config.lsl_stream_name} / {config.lsl_stream_type}")
         output_dir = Path(config.output_dir)
         if not output_dir.is_absolute():
             output_dir = base_dir / output_dir
@@ -1072,8 +1130,15 @@ class ExperimentApp:
             extra = self.config.total_duration_s - self.config.planned_duration_s
             if not messagebox.askyesno("时长提示", f"总时长会剩余 {extra:.2f} 秒未使用，继续吗？", parent=self.root):
                 return
+        marker = LslMarker(self.config.lsl_stream_name, self.config.lsl_stream_type, self.config.lsl_source_id, self.status_var.set)
+        dialog = ExperimentReadyDialog(self.root, self.config, marker)
+        self.root.wait_window(dialog)
+        if not dialog.result:
+            marker.close()
+            self.status_var.set("已取消实验准备")
+            return
         self.root.withdraw()
-        PresentationWindow(self.root, self.config, plan, self.base_dir, self._experiment_done)
+        PresentationWindow(self.root, self.config, plan, self.base_dir, self._experiment_done, marker)
 
     def _experiment_done(self, log_path: Path | None) -> None:
         self.root.deiconify()
