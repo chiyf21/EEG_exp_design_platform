@@ -333,8 +333,10 @@ class LslMarker:
         self.status = status
         self.outlet = None
         self.enabled = False
+        self.error: str | None = None
         if StreamInfo is None:
-            self.status("LSL 未安装：实验仍可本地运行，但不会发送 marker")
+            self.error = "未检测到 pylsl。请运行：python -m pip install pylsl"
+            self.status(f"LSL 未安装：{self.error}")
             return
         try:
             info = StreamInfo(stream_name, stream_type, 1, 0, "string", source_id)
@@ -342,14 +344,21 @@ class LslMarker:
             self.enabled = True
             self.status(f"LSL marker 流已创建：{stream_name} / {stream_type}")
         except Exception as exc:  # Hardware/runtime setup must not crash the GUI.
-            self.status(f"LSL 初始化失败：{exc}")
+            self.error = f"LSL 初始化失败：{exc}"
+            self.status(self.error)
 
     def emit(self, payload: dict[str, Any]) -> float | None:
         if not self.outlet:
             return None
-        timestamp = local_clock()
-        self.outlet.push_sample([json.dumps(payload, ensure_ascii=False, separators=(",", ":"))], timestamp=timestamp)
-        return timestamp
+        try:
+            timestamp = local_clock()
+            self.outlet.push_sample([json.dumps(payload, ensure_ascii=False, separators=(",", ":"))], timestamp=timestamp)
+            return timestamp
+        except Exception as exc:
+            self.enabled = False
+            self.error = f"LSL 发送失败：{exc}"
+            self.status(self.error)
+            return None
 
     def close(self) -> None:
         self.outlet = None
@@ -363,18 +372,22 @@ class SerialTrigger:
         self.status = status
         self.serial = None
         self.enabled = False
+        self.error: str | None = None
         if Serial is None:
-            self.status("USB 串口需要安装 pyserial")
+            self.error = "未检测到 pyserial。请运行：python -m pip install pyserial"
+            self.status(f"USB 串口不可用：{self.error}")
             return
         if not port.strip():
-            self.status("USB 串口未配置端口")
+            self.error = "未配置串口端口"
+            self.status(f"USB 串口不可用：{self.error}")
             return
         try:
             self.serial = Serial(port=port.strip(), baudrate=baudrate, timeout=0, write_timeout=1)
             self.enabled = True
             self.status(f"USB 串口已连接：{port.strip()} / {baudrate} baud")
         except Exception as exc:  # Hardware/runtime setup must not crash the GUI.
-            self.status(f"USB 串口初始化失败：{exc}")
+            self.error = f"USB 串口初始化失败：{exc}"
+            self.status(self.error)
 
     def emit(self, payload: dict[str, Any]) -> float | None:
         if not self.serial or not self.enabled:
@@ -385,7 +398,8 @@ class SerialTrigger:
             self.serial.flush()
         except Exception as exc:  # A disconnected device must not crash the experiment GUI.
             self.enabled = False
-            self.status(f"USB 串口发送失败：{exc}")
+            self.error = f"USB 串口发送失败：{exc}"
+            self.status(self.error)
         return None
 
     def close(self) -> None:
@@ -450,7 +464,7 @@ class ExperimentReadyDialog(tk.Toplevel):
             self.status_var.set(f"测试指令发送失败：{exc}")
             return
         if not self.marker.enabled:
-            self.status_var.set("测试指令未发送：触发通道尚未就绪，请检查依赖、端口和设备设置。")
+            self.status_var.set(f"测试指令未发送：{self.marker.error or '触发通道尚未就绪。'}")
         else:
             self.status_var.set(f"测试指令已发送：{instruction}；请在接收端确认。")
 
