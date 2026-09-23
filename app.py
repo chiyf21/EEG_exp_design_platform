@@ -54,9 +54,9 @@ except ImportError:  # The GUI can still be designed/tested without LSL installe
 
 
 try:
-    from serial import Serial
-except ImportError:  # USB serial output is optional when using LSL.
-    Serial = None
+    from neuracle_lib.triggerBox import TriggerBox
+except ImportError:  # The vendor SDK is optional when using LSL.
+    TriggerBox = None
 
 
 try:
@@ -129,7 +129,7 @@ class PhaseDialog(tk.Toplevel):
             ("阶段名称", self.name_var),
             ("时长（秒）", self.duration_var),
             ("指令说明", self.instruction_var),
-            ("LSL marker 标签（可选）", self.marker_var),
+            ("LSL marker / USB trigger code", self.marker_var),
         ]
         for row, (label, variable) in enumerate(fields):
             ttk.Label(body, text=label).grid(row=row, column=0, sticky="w", pady=4)
@@ -366,46 +366,42 @@ class LslMarker:
 
 
 class SerialTrigger:
-    """Assume a USB serial device accepts one UTF-8 JSON line per trigger."""
+    """Send integer trigger codes through the Neuracle TriggerBox SDK."""
 
     def __init__(self, port: str, baudrate: int, status: Callable[[str], None]):
         self.status = status
-        self.serial = None
+        self.triggerbox = None
         self.enabled = False
         self.error: str | None = None
-        if Serial is None:
-            self.error = "未检测到 pyserial。请运行：python -m pip install pyserial"
-            self.status(f"USB 串口不可用：{self.error}")
+        if TriggerBox is None:
+            self.error = "未检测到 neuracle_lib，请安装设备厂商提供的 Neuracle SDK"
+            self.status(f"同步盒不可用：{self.error}")
             return
         if not port.strip():
             self.error = "未配置串口端口"
-            self.status(f"USB 串口不可用：{self.error}")
+            self.status(f"同步盒不可用：{self.error}")
             return
         try:
-            self.serial = Serial(port=port.strip(), baudrate=baudrate, timeout=0, write_timeout=1)
+            self.triggerbox = TriggerBox(port.strip())
             self.enabled = True
-            self.status(f"USB 串口已连接：{port.strip()} / {baudrate} baud")
+            self.status(f"同步盒已连接：{port.strip()}")
         except Exception as exc:  # Hardware/runtime setup must not crash the GUI.
-            self.error = f"USB 串口初始化失败：{exc}"
+            self.error = f"同步盒初始化失败：{exc}"
             self.status(self.error)
 
-    def emit(self, payload: dict[str, Any]) -> float | None:
-        if not self.serial or not self.enabled:
-            return None
+    def emit_code(self, code: int) -> None:
+        if not self.triggerbox or not self.enabled:
+            raise RuntimeError(self.error or "同步盒尚未连接")
         try:
-            data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
-            self.serial.write(data)
-            self.serial.flush()
+            self.triggerbox.output_event_data(int(code))
         except Exception as exc:  # A disconnected device must not crash the experiment GUI.
             self.enabled = False
-            self.error = f"USB 串口发送失败：{exc}"
+            self.error = f"同步盒发送失败：{exc}"
             self.status(self.error)
-        return None
+            raise
 
     def close(self) -> None:
-        if self.serial:
-            self.serial.close()
-        self.serial = None
+        self.triggerbox = None
         self.enabled = False
 
 
@@ -433,14 +429,14 @@ class ExperimentReadyDialog(tk.Toplevel):
         ttk.Label(body, text="正式实验准备", font=(UI_FONT_FAMILY, 16, "bold")).pack(anchor="w")
         ttk.Label(body, text="触发通道已提前建立。请先让接收端开始采集，确认收到测试指令后再开始正式实验。", style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(8, 18))
         if config.trigger_output == "serial":
-            output_info = f"USB serial port: {config.serial_port}    |    baudrate: {config.serial_baudrate}"
+            output_info = f"Neuracle TriggerBox port: {config.serial_port}"
         else:
             output_info = f"LSL stream name: {config.lsl_stream_name}    |    type: {config.lsl_stream_type}"
         ttk.Label(body, text=output_info).pack(anchor="w")
 
         form = ttk.Frame(body)
         form.pack(fill="x", pady=(18, 8))
-        ttk.Label(form, text="测试指令").pack(side="left")
+        ttk.Label(form, text="测试指令 / trigger code").pack(side="left")
         ttk.Entry(form, textvariable=self.test_instruction_var, width=42).pack(side="left", padx=(12, 8))
         ttk.Button(form, text="发送测试指令", command=self._send_test).pack(side="left")
         ttk.Label(body, textvariable=self.status_var, style="Muted.TLabel", wraplength=620).pack(anchor="w", pady=(4, 0))
@@ -459,7 +455,10 @@ class ExperimentReadyDialog(tk.Toplevel):
             messagebox.showwarning("测试指令为空", "请输入一条测试指令。", parent=self)
             return
         try:
-            self.marker.emit({"instruction": instruction})
+            if self.config.trigger_output == "serial":
+                self.marker.emit_code(99)
+            else:
+                self.marker.emit({"instruction": instruction})
         except Exception as exc:
             self.status_var.set(f"测试指令发送失败：{exc}")
             return
@@ -783,7 +782,22 @@ class PresentationWindow:
         lsl_timestamp = None
         if event == "phase/start" and phase is not None:
             instruction = phase.instruction.strip() or phase.name.strip()
-            lsl_timestamp = self.marker.emit({"instruction": instruction})
+            if self.config.trigger_output == "serial":
+                try:
+                    code = int(phase.marker)
+                except ValueError:
+                    code = {
+                        "prepare": 1,
+                        "left_hand": 2,
+                        "right_hand": 3,
+                        "feet": 4,
+                        "rest": 5,
+                    }.get(phase.marker.lower(), 0)
+                if code <= 0:
+                    raise ValueError(f"阶段“{phase.name}”没有有效的 USB trigger code")
+                self.marker.emit_code(code)
+            else:
+                lsl_timestamp = self.marker.emit({"instruction": instruction})
         self.log.write(
             wall_time=datetime.now().isoformat(timespec="milliseconds"),
             lsl_timestamp="" if lsl_timestamp is None else f"{lsl_timestamp:.9f}",
@@ -1067,7 +1081,7 @@ class ExperimentApp:
             ttk.Label(lsl_form, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=7)
             ttk.Entry(lsl_form, textvariable=variable, width=44).grid(row=row, column=1, sticky="w", pady=6)
         ttk.Label(lsl_card, text="LSL 场景下接收端的 name 和 type 必须与这里完全一致；同步盒场景建议使用 MITrigger。", style="CardMuted.TLabel").pack(anchor="w", pady=(12, 0))
-        ttk.Label(lsl_card, text="USB 串口当前按 UTF-8 JSON + 换行发送，例如 {\"instruction\":\"...\"}；最终协议需以同步盒说明为准。", style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
+        ttk.Label(lsl_card, text="Neuracle 同步盒模式通过厂商 SDK 发送整数 trigger code；阶段编辑器中的 marker 可填写 1、2、3 等数字，测试指令固定发送 99。", style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
 
         self.speech_enabled_var = tk.BooleanVar(value=False)
         self.speech_rate_var = tk.StringVar(value="170")

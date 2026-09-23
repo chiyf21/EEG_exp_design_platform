@@ -42,15 +42,21 @@ LSL 只在每个阶段开始时发送当前指令，每个样本是一条 JSON�
 
 点击“开始实验”后会先进入“实验准备”窗口。此时 LSL stream 已经建立，可以发送 `TEST_TRIGGER` 等测试指令；接收端确认后点击“开始正式实验”，正式实验计时从这次点击之后开始。
 
-## USB 串口（试用假设）
+## Neuracle USB 同步盒
 
-在“LSL / 输出”页将“触发输出方式”切换为“USB 串口”，填写端口（Windows 例如 `COM3`，macOS/Linux 例如 `/dev/ttyUSB0`）和波特率。当前实现假设同步盒接收 UTF-8 编码的 JSON，并以换行符结束：
+在“LSL / 输出”页将“触发输出方式”切换为“USB 串口”，填写设备端口。Windows 例如 `COM3`，macOS 例如 `/dev/cu.usbserial-XXXX`。程序通过设备厂商提供的 `neuracle_lib.triggerBox.TriggerBox` 发送整数 trigger code，不发送 JSON。
 
-```text
-{"instruction":"Imagine left hand grasping"}\n
+阶段编辑器中的“LSL marker / USB trigger code”在 USB 模式下填写数字，例如准备为 `1`、左手为 `2`、右手为 `3`、双脚为 `4`、休息为 `5`。准备窗口中的测试按钮固定发送 `99`。
+
+需要把厂商 SDK 放入当前 Python 环境，并确认可以运行：
+
+```python
+from neuracle_lib.triggerBox import TriggerBox
+box = TriggerBox("/dev/cu.usbserial-XXXX")
+box.output_event_data(99)
 ```
 
-需要安装 `pyserial`。同步盒如果要求数字 trigger、固定字节帧或其他波特率，需要根据厂商协议调整 `SerialTrigger.emit()`，不能仅靠端口号判断协议。
+SDK 示例只传入端口，没有单独传波特率，因此波特率由 SDK 内部处理；界面中的波特率字段仅为兼容保留。
 
 ## 时序边界
 
